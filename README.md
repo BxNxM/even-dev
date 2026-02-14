@@ -24,9 +24,9 @@ The goal of this repository is to provide a simple starting point for building E
 |    [demo](./apps/demo/)       | Demo app (base) - simple control showcase                       | ![demo](./media/demo.png) |
 |    [epub](./apps/epub/)       | Epub reader demo @chortya/epub-reader-g2                        | ![epub](./media/epub.png) ![epub2](./media/epub2.png) | 
 |    [stars](./apps/stars/)     | A real-time sky chart application @thibautrey/even-stars        | ![stars](./media/stars.png) |
-|    [timer](./apps/timer/)     | Countdown timer (1, 5, 10, 15 min, click to start, double-click to stop) | ![timer](./media/timer.png) |
+|    [timer](./apps/timer/)     | Countdown timer (1, 5 ... min, click to start, double-click to stop) | ![timer](./media/timer.png) |
 |    [transit](./apps/transit/) | Public transport planner @langerhans/even-transit               | ![stars](./media/transport.png) |
-
+|    [restapi](./apps/restapi/) | Simple REST API client (micrOS integration)               | ![stars](./media/restapi.png) |
 
 ---
 
