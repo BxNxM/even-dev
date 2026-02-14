@@ -92,5 +92,15 @@ vite.config.ts  -> Development server configuration
 
 This is a minimal example project intended for experimentation and learning. APIs and structure may change as the Even ecosystem evolves.
 
+## Even developer packages
+
+* CLI Tool: https://www.npmjs.com/package/@evenrealities/evenhub-cli
+* SDK Core: https://www.npmjs.com/package/@evenrealities/even_hub_sdk
+* evenbetter SDK - a more abstracted SDK made by community member @JappyJan
+https://www.npmjs.com/package/@jappyjan/even-better-sdk
+* UIUX guideline: https://www.figma.com/design/X82y5uJvqMH95jgOfmV34j/Even-Realities---Software-Design-Guidelines--Public-?node-id=2922-80782&t=ZIxZJDitnBnZJOwb-1
+* (SUPER ROUGH) Demo app: https://github.com/even-realities/EH-InNovel
+* Simulator: https://www.npmjs.com/package/@evenrealities/evenhub-simulator
+
 
 git push -u origin main
