@@ -1,6 +1,8 @@
 # Even Hub Demo App (Beta)
 
-Clear statement: this project is a minimal starter app for building and testing Even Hub interactions in the Even Hub Simulator, without a physical Even device.
+![demo](./media/demo.png)
+
+This project is a minimal starter app for building and testing Even Hub interactions in the Even Hub Simulator, without a physical Even device.
 
 ## Overview
 
