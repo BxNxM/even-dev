@@ -5,70 +5,23 @@ type AppModuleShape = {
   default?: AppModule
 }
 
-const appEntryModules = import.meta.glob('../apps/*/index.ts')
+const builtinModules = import.meta.glob('../apps/*/index.ts')
 
-type SubmoduleAdapter = {
-  id: string
-  marker: Record<string, () => Promise<unknown>>
-  load: () => Promise<AppModuleShape>
-}
-
-const submoduleAdapters: SubmoduleAdapter[] = [
-  {
-    id: 'reddit',
-    marker: import.meta.glob('../apps/reddit/src/even-client.ts'),
-    load: () => import('./reddit-submodule-adapter') as Promise<AppModuleShape>,
-  },
-  {
-    id: 'stars',
-    marker: import.meta.glob('../apps/stars/src/main.ts'),
-    load: () => import('./stars-submodule-adapter') as Promise<AppModuleShape>,
-  },
-  {
-    id: 'epub',
-    marker: import.meta.glob('../apps/epub/src/main.ts'),
-    load: () => import('./epub-submodule-adapter') as Promise<AppModuleShape>,
-  },
-  {
-    id: 'transit',
-    marker: import.meta.glob('../apps/transit/package.json'),
-    load: () => import('./transit-submodule-adapter') as Promise<AppModuleShape>,
-  },
-  {
-    id: 'chess',
-    marker: import.meta.glob('../apps/chess/package.json'),
-    load: () => import('./chess-submodule-adapter') as Promise<AppModuleShape>,
-  },
-  {
-    id: 'weather',
-    marker: import.meta.glob('../apps/weather/package.json'),
-    load: () => import('./weather-submodule-adapter') as Promise<AppModuleShape>,
-  },
-]
-
-function extractAppName(modulePath: string): string {
-  const match = modulePath.match(/\.\.\/apps\/([^/]+)\/index\.ts$/)
-  return match?.[1] ?? ''
-}
-
-function discoveredApps(): string[] {
-  const names = Object.keys(appEntryModules)
-    .map(extractAppName)
+function builtinAppNames(): string[] {
+  return Object.keys(builtinModules)
+    .map(p => p.match(/\.\.\/apps\/([^/]+)\/index\.ts$/)?.[1] ?? '')
     .filter(Boolean)
+}
 
-  for (const adapter of submoduleAdapters) {
-    if (Object.keys(adapter.marker).length > 0) {
-      names.push(adapter.id)
-    }
+async function loadApp(name: string): Promise<AppModuleShape | null> {
+  const builtinPath = `../apps/${name}/index.ts`
+  const builtinImporter = builtinModules[builtinPath]
+
+  if (builtinImporter) {
+    return (await builtinImporter()) as AppModuleShape
   }
 
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b))
-}
-
-function getSubmoduleAdapter(appId: string): SubmoduleAdapter | undefined {
-  return submoduleAdapters.find((adapter) => (
-    adapter.id === appId && Object.keys(adapter.marker).length > 0
-  ))
+  return null
 }
 
 function resolveSelectedApp(appNames: string[]): string {
@@ -94,7 +47,7 @@ function updateStatus(text: string) {
 }
 
 async function boot() {
-  const appNames = discoveredApps()
+  const appNames = builtinAppNames()
 
   if (appNames.length === 0) {
     updateStatus('No apps found in /apps')
@@ -102,25 +55,18 @@ async function boot() {
   }
 
   const selectedAppName = resolveSelectedApp(appNames)
-  const modulePath = `../apps/${selectedAppName}/index.ts`
-  const importer = appEntryModules[modulePath]
-  const adapter = getSubmoduleAdapter(selectedAppName)
-  const module = importer
-    ? ((await importer()) as AppModuleShape)
-    : adapter
-      ? await adapter.load()
-      : null
+  const module = await loadApp(selectedAppName)
 
   if (!module) {
     updateStatus(`App not found: ${selectedAppName}`)
-    throw new Error(`Missing app module: ${modulePath}`)
+    throw new Error(`Missing app module: ${selectedAppName}`)
   }
 
   const loadedApp = module.app ?? module.default
 
   if (!loadedApp || typeof loadedApp.createActions !== 'function') {
     updateStatus(`Invalid app module: ${selectedAppName}`)
-    throw new Error(`App module ${modulePath} must export 'app' or default with createActions()`)
+    throw new Error(`App module ${selectedAppName} must export 'app' or default with createActions()`)
   }
 
   const heading = document.querySelector('#app h1')
