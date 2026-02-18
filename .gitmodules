@@ -1,0 +1,3 @@
+[submodule "misc/editor"]
+	path = misc/editor
+	url = https://github.com/langerhans/even-ui-builder
