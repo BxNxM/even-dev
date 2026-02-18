@@ -1,287 +1,128 @@
 // vite.config.ts
-import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
+import type { Alias, Plugin } from 'vite'
+import { loadAppPlugins } from './vite-plugins'
 
-const CHESS_STOCKFISH_BASE_URL = '/stockfish/'
-const CHESS_STOCKFISH_DIR = new URL('./apps/chess/public/stockfish/', import.meta.url)
+// ---------------------------------------------------------------------------
+// External app registry (apps.json + APP_PATH env override)
+// ---------------------------------------------------------------------------
+
+const APPS_CACHE_DIR = resolve('.apps-cache')
+
+function isGitUrl(value: string): boolean {
+  const base = value.split('#')[0] ?? ''
+  return base.startsWith('https://') || base.startsWith('git@')
+}
+
+function resolveGitEntry(name: string, value: string): string {
+  const [, subpath] = value.split('#')
+  const base = resolve(APPS_CACHE_DIR, name)
+  return subpath ? resolve(base, subpath) : base
+}
+
+function loadExternalApps(): Record<string, string> {
+  const apps: Record<string, string> = {}
+
+  if (existsSync('apps.json')) {
+    const raw = JSON.parse(readFileSync('apps.json', 'utf8')) as Record<string, string>
+    for (const [name, value] of Object.entries(raw)) {
+      apps[name] = isGitUrl(value) ? resolveGitEntry(name, value) : resolve(value)
+    }
+  }
+
+  const appName = process.env.APP_NAME ?? process.env.VITE_APP_NAME ?? ''
+  const appPath = process.env.APP_PATH ?? ''
+  if (appName && appPath) {
+    apps[appName] = resolve(appPath)
+  }
+
+  return apps
+}
+
+const externalApps = loadExternalApps()
+
+// ---------------------------------------------------------------------------
+// External app HTML plugin: serve the external app's own index.html
+// ---------------------------------------------------------------------------
+
+function externalAppHtmlPlugin(): Plugin | null {
+  const selectedApp = process.env.VITE_APP_NAME ?? process.env.APP_NAME ?? ''
+  const appDir = externalApps[selectedApp]
+  if (!appDir) return null
+
+  const absAppDir = resolve(appDir)
+  const htmlPath = resolve(absAppDir, 'index.html')
+  if (!existsSync(htmlPath)) return null
+
+  return {
+    name: 'external-app-html',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url ?? ''
+        if (url !== '/' && url !== '/index.html') {
+          next()
+          return
+        }
+
+        try {
+          let html = readFileSync(htmlPath, 'utf-8')
+          // Rewrite local absolute paths to /@fs/ so Vite resolves them
+          // from the external app's directory instead of even-dev's root
+          html = html.replace(
+            /(src|href)=(["'])\/(?!\/|@|http)/g,
+            `$1=$2/@fs/${absAppDir}/`,
+          )
+          html = await server.transformIndexHtml(url, html)
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/html')
+          res.end(html)
+        } catch (e) {
+          next(e)
+        }
+      })
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vite aliases + fs.allow from external apps
+// ---------------------------------------------------------------------------
+
+function buildAliases(): Alias[] {
+  return Object.entries(externalApps).map(([name, absPath]) => ({
+    find: `apps/${name}`,
+    replacement: absPath,
+  }))
+}
+
+function buildFsAllow(): string[] {
+  const dirs = new Set<string>()
+  for (const absPath of Object.values(externalApps)) {
+    dirs.add(absPath)
+    dirs.add(resolve(absPath, '..'))
+  }
+  return [...dirs]
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
 export default defineConfig({
-  plugins: [{
-    name: 'restapi-proxy',
-    async generateBundle() {
-      const stockfishFiles = [
-        ['stockfish.wasm.js', 'application/javascript'],
-        ['stockfish.wasm', 'application/wasm'],
-      ] as const
-
-      for (const [filename] of stockfishFiles) {
-        try {
-          const source = await readFile(new URL(filename, CHESS_STOCKFISH_DIR))
-          this.emitFile({
-            type: 'asset',
-            fileName: `stockfish/${filename}`,
-            source,
-          })
-        } catch {
-          // Chess submodule may be absent; skip emitting assets in that case.
-        }
-      }
-    },
-    configureServer(server) {
-      const openExternalUrl = async (target: string): Promise<void> => {
-        const openCommand = process.platform === 'darwin'
-          ? ['open', target]
-          : process.platform === 'win32'
-            ? ['cmd', '/c', 'start', '', target]
-            : ['xdg-open', target]
-
-        await new Promise<void>((resolve, reject) => {
-          execFile(openCommand[0], openCommand.slice(1), (error) => {
-            if (error) {
-              reject(error)
-              return
-            }
-            resolve()
-          })
-        })
-      }
-
-      const isEditorUrlReachable = async (target: string): Promise<boolean> => {
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 900)
-          const response = await fetch(target, { method: 'GET', signal: controller.signal })
-          clearTimeout(timer)
-
-          if (!response.ok) {
-            return false
-          }
-
-          const contentType = response.headers.get('content-type') ?? ''
-          if (!contentType.includes('text/html')) {
-            return false
-          }
-
-          const body = await response.text()
-          return body.includes('Smart Glasses UI Builder')
-        } catch {
-          return false
-        }
-      }
-
-      server.middlewares.use(CHESS_STOCKFISH_BASE_URL, async (req, res, next) => {
-        if (req.method !== 'GET') {
-          next()
-          return
-        }
-
-        const reqUrl = req.url ?? '/'
-        const stockfishPath = reqUrl.split('?')[0] ?? '/'
-        if (stockfishPath.includes('..')) {
-          res.statusCode = 400
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Invalid stockfish asset path')
-          return
-        }
-
-        const cleanName = stockfishPath.replace(/^\/+/, '')
-        try {
-          const source = await readFile(new URL(cleanName, CHESS_STOCKFISH_DIR))
-          const contentType = cleanName.endsWith('.wasm')
-            ? 'application/wasm'
-            : 'application/javascript; charset=utf-8'
-          res.statusCode = 200
-          res.setHeader('content-type', contentType)
-          res.end(source)
-        } catch {
-          next()
-        }
-      })
-
-      server.middlewares.use('/__open_editor', async (req, res) => {
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Method Not Allowed')
-          return
-        }
-
-        try {
-          const explicitUrl = new URL(req.url ?? '', 'http://localhost').searchParams.get('url')?.trim() ?? ''
-          const candidates = [
-            explicitUrl,
-            'http://localhost:5174/even-ui-builder/',
-            'http://127.0.0.1:5174/even-ui-builder/',
-            'http://localhost:5173/even-ui-builder/',
-            'http://127.0.0.1:5173/even-ui-builder/',
-          ].filter(Boolean)
-
-          let openedUrl: string | null = null
-          for (const candidate of candidates) {
-            if (await isEditorUrlReachable(candidate)) {
-              await openExternalUrl(candidate)
-              openedUrl = candidate
-              break
-            }
-          }
-
-          if (!openedUrl) {
-            res.statusCode = 404
-            res.setHeader('content-type', 'application/json; charset=utf-8')
-            res.end(JSON.stringify({ ok: false, error: 'Editor dev server not reachable.' }))
-            return
-          }
-
-          res.statusCode = 200
-          res.setHeader('content-type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify({ ok: true, url: openedUrl }))
-        } catch (error) {
-          res.statusCode = 500
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          const message = error instanceof Error ? error.message : String(error)
-          res.end(`Failed to open editor URL: ${message}`)
-        }
-      })
-
-      server.middlewares.use('/__restapi_proxy', async (req, res) => {
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Method Not Allowed')
-          return
-        }
-
-        try {
-          const parsed = new URL(req.url ?? '', 'http://localhost')
-          const target = parsed.searchParams.get('url')?.trim() ?? ''
-          if (!target || (!target.startsWith('http://') && !target.startsWith('https://'))) {
-            res.statusCode = 400
-            res.setHeader('content-type', 'text/plain; charset=utf-8')
-            res.end('Missing or invalid "url" query parameter')
-            return
-          }
-
-          const upstream = await fetch(target, { method: 'GET' })
-          const body = await upstream.text()
-          const contentType = upstream.headers.get('content-type') ?? 'text/plain; charset=utf-8'
-
-          res.statusCode = upstream.status
-          res.setHeader('content-type', contentType)
-          res.end(body)
-        } catch (error) {
-          res.statusCode = 502
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          const message = error instanceof Error ? error.message : String(error)
-          res.end(`Proxy request failed: ${message}`)
-        }
-      })
-
-      server.middlewares.use('/__reddit_proxy', async (req, res) => {
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Method Not Allowed')
-          return
-        }
-
-        try {
-          const parsed = new URL(req.url ?? '', 'http://localhost')
-          const path = parsed.searchParams.get('path')?.trim() ?? ''
-          if (!path.startsWith('/')) {
-            res.statusCode = 400
-            res.setHeader('content-type', 'text/plain; charset=utf-8')
-            res.end('Missing or invalid "path" query parameter')
-            return
-          }
-
-          const upstreamUrl = new URL(path, 'https://old.reddit.com')
-          const upstream = await fetch(upstreamUrl, {
-            headers: {
-              'User-Agent': 'even-dev-simulator/1.0',
-              Accept: 'application/json',
-            },
-          })
-          const body = await upstream.text()
-          const contentType = upstream.headers.get('content-type') ?? 'application/json; charset=utf-8'
-
-          res.statusCode = upstream.status
-          res.setHeader('content-type', contentType)
-          res.end(body)
-        } catch (error) {
-          res.statusCode = 502
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          const message = error instanceof Error ? error.message : String(error)
-          res.end(`Reddit proxy request failed: ${message}`)
-        }
-      })
-
-      server.middlewares.use('/__open_external', async (req, res) => {
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Method Not Allowed')
-          return
-        }
-
-        try {
-          const parsed = new URL(req.url ?? '', 'http://localhost')
-          const target = parsed.searchParams.get('url')?.trim() ?? ''
-          if (!target || (!target.startsWith('http://') && !target.startsWith('https://'))) {
-            res.statusCode = 400
-            res.setHeader('content-type', 'text/plain; charset=utf-8')
-            res.end('Missing or invalid "url" query parameter')
-            return
-          }
-
-          await openExternalUrl(target)
-
-          res.statusCode = 200
-          res.setHeader('content-type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify({ ok: true }))
-        } catch (error) {
-          res.statusCode = 500
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          const message = error instanceof Error ? error.message : String(error)
-          res.end(`Failed to open external URL: ${message}`)
-        }
-      })
-
-      // Compatibility route for the upstream reddit submodule client.
-      // It expects requests like /reddit-api/r/... to proxy to old.reddit.com.
-      server.middlewares.use('/reddit-api', async (req, res) => {
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          res.end('Method Not Allowed')
-          return
-        }
-
-        try {
-          const upstreamUrl = `https://old.reddit.com${req.url ?? ''}`
-          const upstream = await fetch(upstreamUrl, {
-            headers: {
-              'User-Agent': 'even-dev-simulator/1.0',
-              Accept: 'application/json',
-            },
-          })
-          const body = await upstream.text()
-          const contentType = upstream.headers.get('content-type') ?? 'application/json; charset=utf-8'
-
-          res.statusCode = upstream.status
-          res.setHeader('content-type', contentType)
-          res.end(body)
-        } catch (error) {
-          res.statusCode = 502
-          res.setHeader('content-type', 'text/plain; charset=utf-8')
-          const message = error instanceof Error ? error.message : String(error)
-          res.end(`Reddit proxy request failed: ${message}`)
-        }
-      })
-    },
-  }],
+  plugins: [
+    externalAppHtmlPlugin(),
+    ...loadAppPlugins({ externalApps }),
+  ].filter(Boolean),
+  resolve: {
+    alias: buildAliases(),
+  },
   server: {
     host: true,
-    port: 5173
-  }
+    port: 5173,
+    fs: {
+      allow: ['.', ...buildFsAllow()],
+    },
+  },
 })

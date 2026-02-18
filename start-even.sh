@@ -11,6 +11,7 @@ SIM_HOST="${SIM_HOST:-127.0.0.1}"
 PORT="${PORT:-5173}"
 URL="${URL:-http://${SIM_HOST}:${PORT}}"
 APP_NAME="${APP_NAME:-}"
+APP_PATH="${APP_PATH:-}"
 CLI_APP_NAME="${1:-}"
 
 echo "Starting Even Hub development environment... ${URL}"
@@ -24,11 +25,28 @@ command_exists () {
 }
 
 discover_apps () {
-  if [ ! -d "apps" ]; then
-    return
+  local apps=()
+
+  # Built-in apps from apps/ directory
+  if [ -d "apps" ]; then
+    while IFS= read -r app; do
+      apps+=("$app")
+    done < <(find apps -mindepth 1 -maxdepth 1 -type d ! -name '_*' ! -name '.*' -exec basename {} \;)
   fi
 
-  find apps -mindepth 1 -maxdepth 1 -type d ! -name '_*' ! -name '.*' -exec basename {} \; | sort
+  # External apps from apps.json
+  if [ -f "apps.json" ]; then
+    while IFS= read -r app; do
+      apps+=("$app")
+    done < <(node -e "Object.keys(JSON.parse(require('fs').readFileSync('apps.json','utf8'))).forEach(k=>console.log(k))")
+  fi
+
+  # APP_PATH override adds to the list too
+  if [ -n "${APP_NAME}" ] && [ -n "${APP_PATH}" ]; then
+    apps+=("${APP_NAME}")
+  fi
+
+  printf '%s\n' "${apps[@]}" | sort -u
 }
 
 resolve_app_selection () {
@@ -50,7 +68,7 @@ resolve_app_selection () {
       fi
     done
 
-    echo "APP_NAME '${APP_NAME}' does not exist under ./apps." >&2
+    echo "APP_NAME '${APP_NAME}' not found in built-in apps or apps.json." >&2
     echo "Available apps: ${apps[*]}" >&2
     exit 1
   fi
@@ -120,19 +138,65 @@ if [ -n "${CLI_APP_NAME}" ]; then
   APP_NAME="${CLI_APP_NAME}"
 fi
 
-SELECTED_APP="$(resolve_app_selection)"
-echo "Selected app: ${SELECTED_APP}"
-
 # --------------------------------------------------
-# Ensure selected app dependencies installed (if needed)
+# APP_PATH shortcut: point to a local directory, skip selection
 # --------------------------------------------------
 
-if [ -f "apps/${SELECTED_APP}/package.json" ] && [ ! -d "apps/${SELECTED_APP}/node_modules" ]; then
-  echo "Installing dependencies for apps/${SELECTED_APP}..."
-  npm --prefix "apps/${SELECTED_APP}" install
+if [ -n "${APP_PATH}" ]; then
+  RESOLVED_APP_PATH="$(cd "${APP_PATH}" && pwd)"
+  if [ -z "${APP_NAME}" ]; then
+    APP_NAME="$(basename "${RESOLVED_APP_PATH}")"
+  fi
+  SELECTED_APP="${APP_NAME}"
+  echo "Selected app: ${SELECTED_APP} (from APP_PATH=${APP_PATH})"
+
+  if [ -f "${RESOLVED_APP_PATH}/package.json" ] && [ ! -d "${RESOLVED_APP_PATH}/node_modules" ]; then
+    echo "Installing dependencies for ${RESOLVED_APP_PATH}..."
+    npm --prefix "${RESOLVED_APP_PATH}" install
+  fi
+else
+  RESOLVED_APP_PATH=""
+  SELECTED_APP="$(resolve_app_selection)"
+  echo "Selected app: ${SELECTED_APP}"
+
+  # --------------------------------------------------
+  # Clone selected app from apps.json if it's a git URL
+  # --------------------------------------------------
+
+  if [ -f "apps.json" ]; then
+    APP_URL="$(node -e "
+      const r = JSON.parse(require('fs').readFileSync('apps.json','utf8'));
+      const v = r['${SELECTED_APP}'] || '';
+      const base = v.split('#')[0];
+      if (base.startsWith('https://') || base.startsWith('git@')) console.log(base);
+    ")"
+    if [ -n "${APP_URL}" ]; then
+      CACHE_DIR=".apps-cache/${SELECTED_APP}"
+      if [ ! -d "${CACHE_DIR}" ]; then
+        echo "Cloning ${SELECTED_APP} from ${APP_URL}..."
+        git clone "${APP_URL}" "${CACHE_DIR}"
+      fi
+    fi
+  fi
+
+  # --------------------------------------------------
+  # Ensure selected app dependencies installed (if needed)
+  # --------------------------------------------------
+
+  APP_DIR=""
+  if [ -d "apps/${SELECTED_APP}" ]; then
+    APP_DIR="apps/${SELECTED_APP}"
+  elif [ -d ".apps-cache/${SELECTED_APP}" ]; then
+    APP_DIR=".apps-cache/${SELECTED_APP}"
+  fi
+
+  if [ -n "${APP_DIR}" ] && [ -f "${APP_DIR}/package.json" ] && [ ! -d "${APP_DIR}/node_modules" ]; then
+    echo "Installing dependencies for ${APP_DIR}..."
+    npm --prefix "${APP_DIR}" install
+  fi
 fi
 
-VITE_APP_NAME="${SELECTED_APP}" npx vite --host "${VITE_HOST}" --port "${PORT}" &
+VITE_APP_NAME="${SELECTED_APP}" APP_NAME="${SELECTED_APP}" APP_PATH="${RESOLVED_APP_PATH}" npx vite --host "${VITE_HOST}" --port "${PORT}" &
 
 VITE_PID=$!
 
