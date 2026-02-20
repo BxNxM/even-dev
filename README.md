@@ -3,16 +3,16 @@
 Multi-application development environment for building and testing Even G2 apps with the Even Hub Simulator.
 
 ```bash
-➜  even-dev git:(main) ✗ ./start-even.sh
+➜  even-dev git:(main) ./start-even.sh 
 Starting Even Hub development environment... http://127.0.0.1:5173
-                                                         █████                     
-                                                        ░░███                      
-  ██████  █████ █████  ██████  ████████               ███████   ██████  █████ █████
- ███░░███░░███ ░░███  ███░░███░░███░░███  ██████████ ███░░███  ███░░███░░███ ░░███ 
-░███████  ░███  ░███ ░███████  ░███ ░███ ░░░░░░░░░░ ░███ ░███ ░███████  ░███  ░███ 
-░███░░░   ░░███ ███  ░███░░░   ░███ ░███            ░███ ░███ ░███░░░   ░░███ ███  
-░░██████   ░░█████   ░░██████  ████ █████           ░░████████░░██████   ░░█████   
- ░░░░░░     ░░░░░     ░░░░░░  ░░░░ ░░░░░             ░░░░░░░░  ░░░░░░     ░░░░░    
+
+                                                    ░░███
+  ██████  █████ █████  ██████  ████████           ███████   ██████  █████ █████
+ ███░░███░░███ ░░███  ███░░███░░███░░███  ██████ ███░░███  ███░░███░░███ ░░███
+░███████  ░███  ░███ ░███████  ░███ ░███ ░░░░░░ ░███ ░███ ░███████  ░███  ░███
+░███░░░   ░░███ ███  ░███░░░   ░███ ░███        ░███ ░███ ░███░░░   ░░███ ███
+░░██████   ░░█████   ░░██████  ████ █████       ░░████████░░██████   ░░█████
+ ░░░░░░     ░░░░░     ░░░░░░  ░░░░ ░░░░░         ░░░░░░░░  ░░░░░░     ░░░░░
                                                                                    
 Command hints:
   ./start-even.sh                  # interactive app selection
@@ -28,19 +28,20 @@ Available apps:
   3    restapi              apps/restapi
   4    clock                apps/clock
   5    quicktest            apps/quicktest
-  6    chess                .apps-cache: https://github.com/dmyster145/EvenChess
-  7    epub                 .apps-cache: https://github.com/chortya/epub-reader-g2
-  8    reddit               .apps-cache: https://github.com/fuutott/rdt-even-g2-rddit-client
-  9    stars                .apps-cache: https://github.com/thibautrey/even-stars
-  10   transit              .apps-cache: https://github.com/langerhans/even-transit
-  11   weather              .apps-cache: https://github.com/nickustinov/weather-even-g2.git
-  12   snake                .apps-cache: https://github.com/nickustinov/snake-even-g2
-  13   pong                 .apps-cache: https://github.com/nickustinov/pong-even-g2
-  14   stt                  .apps-cache: https://github.com/nickustinov/stt-even-g2
-Select app [1-14] (default 1): 1
+  6    chess                .apps-cache: github.com/dmyster145/EvenChess
+  7    epub                 .apps-cache: github.com/chortya/epub-reader-g2
+  8    reddit               .apps-cache: github.com/fuutott/rdt-even-g2-rddit-client
+  9    stars                .apps-cache: github.com/thibautrey/even-stars
+  10   transit              .apps-cache: github.com/langerhans/even-transit
+  11   weather              .apps-cache: github.com/nickustinov/weather-even-g2.git
+  12   snake                .apps-cache: github.com/nickustinov/snake-even-g2
+  13   pong                 .apps-cache: github.com/nickustinov/pong-even-g2
+  14   stt                  .apps-cache: github.com/nickustinov/stt-even-g2
+  15   tetris               .apps-cache: github.com/nickustinov/tetris-even-g2
+Select app [1-15] (default 1): 1
 ```
 
-![base_app](./media/base_app.png)
+![base\_app](./media/base_app.png)
 
 For general G2 development documentation, see the [G2 development notes](https://github.com/nickustinov/even-g2-notes/blob/main/G2.md).
 
@@ -48,7 +49,7 @@ For general G2 development documentation, see the [G2 development notes](https:/
 
 |              App               |                      Description                               |     Visual        |
 |:------------------------------:|:----------------------------------------------------------------| :---------------: |
-|    [base_app](./apps/base_app/)        | base_app – simple one pager app template                 | ![demo](./media/base_app.png) |
+|    [base\_app](./apps/base_app/)        | base\_app – simple one pager app template                 | ![demo](./media/base_app.png) |
 |    [clock](./apps/clock/)      | Clock app – app refresh test showcase                           | ![clock](./media/clock.png) |
 |    [timer](./apps/timer/)      | Countdown timer (1, 5 ... min, click to start, double-click to stop) | ![timer](./media/timer.png) |
 |    [restapi](./apps/restapi/)  | Simple REST API client (micrOS integration)                     | ![restapi](./media/restapi.png) |

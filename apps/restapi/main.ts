@@ -5,35 +5,46 @@ import {
   OsEventTypeList,
   RebuildPageContainer,
   TextContainerProperty,
+  TextContainerUpgrade,
   waitForEvenAppBridge,
   type EvenAppBridge,
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import type { AppActions, SetStatus } from '../_shared/app-types'
 import { appendEventLog } from '../_shared/log'
-
-const DEFAULT_URLS = [
-  'http://livingkitchen.local/rest/system/clock',
-  'http://livingkitchen.local/rest/rgb/toggle',
-] as const
+import { fetchAsText } from './http'
+import {
+  clampIndex,
+  displayName,
+  getTagFilterLabel,
+  parseTagsInput,
+  RestCommandStore,
+  TAG_ALL,
+  toGlassLabel,
+  type RestCommand,
+} from './model'
+import {
+  clearCommandInput,
+  ensureUi,
+  getSelectedCommandId,
+  rebuildCommandSelect,
+  rebuildTagFilterSelect,
+  readCommandInput,
+  syncSelectByCommandId,
+  syncTagFilter,
+  type RestUiState,
+} from './ui'
 
 const PROXY_PATH = '/__restapi_proxy'
-
-type RestUiState = {
-  root: HTMLDivElement
-  select: HTMLSelectElement
-  response: HTMLPreElement
-  addInput: HTMLInputElement
-  addButton: HTMLButtonElement
-  removeButton: HTMLButtonElement
-}
 
 type BridgeDisplay = {
   mode: 'bridge' | 'mock'
   show: (message: string) => Promise<void>
-  renderList: (urls: string[], selectedIndex: number, statusMessage?: string) => Promise<void>
-  onSelectAndRun: (runner: (index: number) => Promise<void>) => void
+  renderList: (commands: RestCommand[], selectedIndex: number, statusMessage?: string) => Promise<void>
+  onSelectAndRun: (runner: (command: RestCommand) => Promise<void>) => void
 }
+
+const store = new RestCommandStore()
 
 const bridgeState: {
   bridge: EvenAppBridge | null
@@ -41,17 +52,20 @@ const bridgeState: {
   eventLoopRegistered: boolean
   selectedIndex: number
   statusMessage: string
-  onSelectAndRun: ((index: number) => Promise<void>) | null
+  activeTagFilter: string
+  onSelectAndRun: ((command: RestCommand) => Promise<void>) | null
 } = {
   bridge: null,
   startupRendered: false,
   eventLoopRegistered: false,
   selectedIndex: 0,
-  statusMessage: 'Select URL and click',
+  statusMessage: 'Select command and click',
+  activeTagFilter: TAG_ALL,
   onSelectAndRun: null,
 }
 
 let bridgeDisplay: BridgeDisplay | null = null
+let activeUi: RestUiState | null = null
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -61,6 +75,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       .catch((error) => reject(error))
       .finally(() => window.clearTimeout(timer))
   })
+}
+
+function getFilteredCommands(): RestCommand[] {
+  return store.filtered(bridgeState.activeTagFilter)
+}
+
+function buildFilterStatus(): string {
+  const filtered = getFilteredCommands()
+  return `Filter: ${getTagFilterLabel(bridgeState.activeTagFilter)} | ${filtered.length} cmd(s)`
 }
 
 function getRawEventType(event: EvenHubEvent): unknown {
@@ -104,24 +127,86 @@ function normalizeEventType(rawEventType: unknown): OsEventTypeList | undefined 
   return undefined
 }
 
-function clampIndex(index: number, length: number): number {
-  if (length <= 0) return 0
-  return Math.max(0, Math.min(length - 1, index))
+function parseIncomingSelection(
+  event: EvenHubEvent,
+  labels: string[],
+): { index: number; hasExplicitIndex: boolean } {
+  const incomingIndexRaw = event.listEvent?.currentSelectItemIndex
+  const incomingName = event.listEvent?.currentSelectItemName
+  const incomingIndexByName = typeof incomingName === 'string'
+    ? labels.indexOf(incomingName)
+    : -1
+
+  const parsedIncomingIndex = typeof incomingIndexRaw === 'number'
+    ? incomingIndexRaw
+    : typeof incomingIndexRaw === 'string'
+      ? Number.parseInt(incomingIndexRaw, 10)
+      : incomingIndexByName
+
+  if (Number.isFinite(parsedIncomingIndex) && parsedIncomingIndex >= 0) {
+    return { index: parsedIncomingIndex, hasExplicitIndex: true }
+  }
+
+  // Simulator can omit index/name; keep current selection for navigation semantics.
+  return { index: -1, hasExplicitIndex: false }
 }
 
-function toListLabel(url: string): string {
-  if (url.length <= 62) return url
-  return `${url.slice(0, 59)}...`
+function syncBrowserSelectionByCommandId(commandId: number): void {
+  if (!activeUi) {
+    return
+  }
+  syncSelectByCommandId(activeUi.select, commandId)
+}
+
+function syncBrowserTagFilter(tagFilter: string): void {
+  if (!activeUi) {
+    return
+  }
+  syncTagFilter(activeUi.tagFilterSelect, tagFilter)
+}
+
+function selectedCommandFromUi(): RestCommand | null {
+  if (!activeUi) {
+    return null
+  }
+
+  const selectedId = getSelectedCommandId(activeUi.select)
+  if (!selectedId) {
+    return null
+  }
+
+  return store.findById(selectedId)
+}
+
+function refreshUiData(preferredCommandId?: number): void {
+  if (!activeUi) {
+    return
+  }
+
+  rebuildCommandSelect(activeUi.select, store.list(), preferredCommandId)
+  rebuildTagFilterSelect(activeUi.tagFilterSelect, store.availableTags(), bridgeState.activeTagFilter)
+
+  bridgeState.activeTagFilter = activeUi.tagFilterSelect.value
+  const selected = selectedCommandFromUi()
+  const filtered = getFilteredCommands()
+
+  if (!selected || filtered.length === 0) {
+    bridgeState.selectedIndex = 0
+    return
+  }
+
+  const indexInFiltered = filtered.findIndex((command) => command.id === selected.id)
+  bridgeState.selectedIndex = indexInFiltered >= 0 ? indexInFiltered : 0
 }
 
 function getMockBridgeDisplay(): BridgeDisplay {
   return {
     mode: 'mock',
     async show() {
-      // No-op when simulator bridge is unavailable.
+      // No-op in mock mode.
     },
     async renderList() {
-      // No-op when simulator bridge is unavailable.
+      // No-op in mock mode.
     },
     onSelectAndRun(runner) {
       void runner
@@ -131,21 +216,23 @@ function getMockBridgeDisplay(): BridgeDisplay {
 
 async function renderBridgePage(
   bridge: EvenAppBridge,
-  urls: string[],
+  commands: RestCommand[],
   selectedIndex: number,
   statusMessage: string,
 ): Promise<void> {
-  const safeUrls = urls.length > 0 ? urls : ['No URL configured']
-  const safeSelected = clampIndex(selectedIndex, safeUrls.length)
+  const safeCommands = commands.length > 0
+    ? commands
+    : [{ id: 0, url: 'N/A', name: 'No command configured', tags: [] } satisfies RestCommand]
+  const safeSelected = clampIndex(selectedIndex, safeCommands.length)
 
   const titleText = new TextContainerProperty({
     containerID: 1,
     containerName: 'restapi-title',
-    content: 'REST API (Up/Down + Click)',
+    content: 'REST API (Click run, Dbl tag)',
     xPosition: 8,
     yPosition: 0,
     width: 560,
-    height: 32,
+    height: 34,
     isEventCapture: 0,
   })
 
@@ -154,20 +241,20 @@ async function renderBridgePage(
     containerName: 'restapi-status',
     content: statusMessage,
     xPosition: 8,
-    yPosition: 34,
+    yPosition: 36,
     width: 560,
-    height: 64,
+    height: 62,
     isEventCapture: 0,
   })
 
   const listContainer = new ListContainerProperty({
     containerID: 3,
-    containerName: 'restapi-url-list',
+    containerName: 'restapi-command-list',
     itemContainer: new ListItemContainerProperty({
-      itemCount: safeUrls.length,
+      itemCount: safeCommands.length,
       itemWidth: 566,
       isItemSelectBorderEn: 1,
-      itemName: safeUrls.map((value) => toListLabel(value)),
+      itemName: safeCommands.map((command) => toGlassLabel(command)),
     }),
     isEventCapture: 1,
     xPosition: 4,
@@ -192,91 +279,102 @@ async function renderBridgePage(
   await bridge.rebuildPageContainer(new RebuildPageContainer(config))
 }
 
+async function updateBridgeStatusText(bridge: EvenAppBridge, message: string): Promise<boolean> {
+  try {
+    const updated = await bridge.textContainerUpgrade(new TextContainerUpgrade({
+      containerID: 2,
+      containerName: 'restapi-status',
+      contentOffset: 0,
+      contentLength: Math.max(1, message.length),
+      content: message,
+    }))
+    return Boolean(updated)
+  } catch {
+    return false
+  }
+}
+
 function registerBridgeEvents(bridge: EvenAppBridge): void {
   if (bridgeState.eventLoopRegistered) {
     return
   }
 
   bridge.onEvenHubEvent(async (event) => {
-    const urls = getActiveUrls()
-    if (urls.length === 0) {
+    const filteredCommands = getFilteredCommands()
+    if (filteredCommands.length === 0) {
       return
     }
-    const labels = urls.map((url) => toListLabel(url))
 
+    const labels = filteredCommands.map((command) => toGlassLabel(command))
     const rawEventType = getRawEventType(event)
     let eventType = normalizeEventType(rawEventType)
 
-    const incomingIndexRaw = event.listEvent?.currentSelectItemIndex
-    const incomingName = event.listEvent?.currentSelectItemName
-    const incomingIndexByName = typeof incomingName === 'string'
-      ? labels.indexOf(incomingName)
-      : -1
-    const parsedIncomingIndex = typeof incomingIndexRaw === 'number'
-      ? incomingIndexRaw
-      : typeof incomingIndexRaw === 'string'
-        ? Number.parseInt(incomingIndexRaw, 10)
-        : incomingIndexByName
-    // Some simulator list click events omit index/name for first row; treat as index 0.
-    const incomingIndex = event.listEvent && (Number.isNaN(parsedIncomingIndex) || parsedIncomingIndex < 0)
-      ? 0
-      : parsedIncomingIndex
-    const hasIncomingIndex = incomingIndex >= 0 && incomingIndex < urls.length
+    const incoming = parseIncomingSelection(event, labels)
+    const hasIncomingIndex = incoming.hasExplicitIndex && incoming.index < filteredCommands.length
 
     if (eventType === undefined && event.listEvent) {
-      if (hasIncomingIndex && incomingIndex > bridgeState.selectedIndex) {
-        eventType = OsEventTypeList.SCROLL_BOTTOM_EVENT
-      } else if (hasIncomingIndex && incomingIndex < bridgeState.selectedIndex) {
-        eventType = OsEventTypeList.SCROLL_TOP_EVENT
-      } else {
-        eventType = OsEventTypeList.CLICK_EVENT
-      }
+      // Keep parity with base_app behavior: ambiguous list events default to click.
+      eventType = OsEventTypeList.CLICK_EVENT
+    }
+
+    if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      bridgeState.activeTagFilter = store.nextTagFilter(bridgeState.activeTagFilter)
+      bridgeState.selectedIndex = 0
+      syncBrowserTagFilter(bridgeState.activeTagFilter)
+      bridgeState.statusMessage = buildFilterStatus()
+
+      await renderBridgePage(bridge, getFilteredCommands(), bridgeState.selectedIndex, bridgeState.statusMessage)
+      appendEventLog(`REST API glass: switched filter to ${getTagFilterLabel(bridgeState.activeTagFilter)}`)
+      return
     }
 
     if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
-      const previousIndex = bridgeState.selectedIndex
       bridgeState.selectedIndex = clampIndex(
-        hasIncomingIndex ? incomingIndex : bridgeState.selectedIndex + 1,
-        urls.length,
+        hasIncomingIndex ? incoming.index : bridgeState.selectedIndex + 1,
+        filteredCommands.length,
       )
-      syncBrowserSelection(bridgeState.selectedIndex)
-      await renderBridgePage(bridge, urls, bridgeState.selectedIndex, bridgeState.statusMessage)
-      appendEventLog(`REST API glass: down -> ${urls[bridgeState.selectedIndex]}`)
-      if (bridgeState.selectedIndex !== previousIndex) {
-        const run = bridgeState.onSelectAndRun
-        if (run) {
-          await run(bridgeState.selectedIndex)
-        }
+
+      const selected = filteredCommands[bridgeState.selectedIndex]
+      if (selected) {
+        syncBrowserSelectionByCommandId(selected.id)
       }
+
+      appendEventLog(`REST API glass: down -> ${displayName(filteredCommands[bridgeState.selectedIndex])}`)
       return
     }
 
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
-      const previousIndex = bridgeState.selectedIndex
       bridgeState.selectedIndex = clampIndex(
-        hasIncomingIndex ? incomingIndex : bridgeState.selectedIndex - 1,
-        urls.length,
+        hasIncomingIndex ? incoming.index : bridgeState.selectedIndex - 1,
+        filteredCommands.length,
       )
-      syncBrowserSelection(bridgeState.selectedIndex)
-      await renderBridgePage(bridge, urls, bridgeState.selectedIndex, bridgeState.statusMessage)
-      appendEventLog(`REST API glass: up -> ${urls[bridgeState.selectedIndex]}`)
-      if (bridgeState.selectedIndex !== previousIndex) {
-        const run = bridgeState.onSelectAndRun
-        if (run) {
-          await run(bridgeState.selectedIndex)
-        }
+
+      const selected = filteredCommands[bridgeState.selectedIndex]
+      if (selected) {
+        syncBrowserSelectionByCommandId(selected.id)
       }
+
+      appendEventLog(`REST API glass: up -> ${displayName(filteredCommands[bridgeState.selectedIndex])}`)
       return
     }
 
     if (eventType === OsEventTypeList.CLICK_EVENT || (eventType === undefined && event.listEvent)) {
-      const selected = hasIncomingIndex ? clampIndex(incomingIndex, urls.length) : bridgeState.selectedIndex
-      bridgeState.selectedIndex = selected
-      syncBrowserSelection(bridgeState.selectedIndex)
-      appendEventLog(`REST API glass: click -> run ${urls[bridgeState.selectedIndex]}`)
+      const selectedIndex = hasIncomingIndex
+        ? clampIndex(incoming.index, filteredCommands.length)
+        : 0
+
+      bridgeState.selectedIndex = selectedIndex
+      const selectedCommand = filteredCommands[selectedIndex]
+      if (!selectedCommand) {
+        return
+      }
+
+      syncBrowserSelectionByCommandId(selectedCommand.id)
+      appendEventLog(`REST API glass: run ${displayName(selectedCommand)}`)
+
       const run = bridgeState.onSelectAndRun
       if (run) {
-        await run(bridgeState.selectedIndex)
+        await run(selectedCommand)
       }
     }
   })
@@ -292,16 +390,23 @@ function getBridgeDisplay(): BridgeDisplay {
   return {
     mode: 'bridge',
     async show(message: string) {
-      const urls = getActiveUrls()
       bridgeState.statusMessage = message
-      await renderBridgePage(bridgeState.bridge!, urls, bridgeState.selectedIndex, bridgeState.statusMessage)
+      const bridge = bridgeState.bridge!
+      const updated = await updateBridgeStatusText(bridge, bridgeState.statusMessage)
+      if (updated) {
+        return
+      }
+
+      const filteredCommands = getFilteredCommands()
+      bridgeState.selectedIndex = clampIndex(bridgeState.selectedIndex, filteredCommands.length)
+      await renderBridgePage(bridge, filteredCommands, bridgeState.selectedIndex, bridgeState.statusMessage)
     },
-    async renderList(urls: string[], selectedIndex: number, statusMessage?: string) {
-      bridgeState.selectedIndex = clampIndex(selectedIndex, urls.length)
+    async renderList(commands: RestCommand[], selectedIndex: number, statusMessage?: string) {
+      bridgeState.selectedIndex = clampIndex(selectedIndex, commands.length)
       if (statusMessage) {
         bridgeState.statusMessage = statusMessage
       }
-      await renderBridgePage(bridgeState.bridge!, urls, bridgeState.selectedIndex, bridgeState.statusMessage)
+      await renderBridgePage(bridgeState.bridge!, commands, bridgeState.selectedIndex, bridgeState.statusMessage)
     },
     onSelectAndRun(runner) {
       bridgeState.onSelectAndRun = runner
@@ -322,166 +427,20 @@ async function initBridgeDisplay(timeoutMs = 4000): Promise<BridgeDisplay> {
   } catch {
     bridgeState.bridge = null
     bridgeState.startupRendered = false
-    bridgeState.statusMessage = 'Select URL and click'
+    bridgeState.statusMessage = 'Select command and click'
     bridgeDisplay = getMockBridgeDisplay()
     return bridgeDisplay
   }
 }
 
-function ensureOption(select: HTMLSelectElement, url: string): void {
-  const trimmed = url.trim()
-  if (!trimmed) return
-
-  const existing = Array.from(select.options).some((option) => option.value === trimmed)
-  if (existing) return
-
-  const option = document.createElement('option')
-  option.value = trimmed
-  option.textContent = trimmed
-  select.append(option)
-}
-
-function selectedUrl(select: HTMLSelectElement): string {
-  return select.value?.trim() ?? ''
-}
-
-function getAllUrls(select: HTMLSelectElement): string[] {
-  return Array.from(select.options).map((option) => option.value)
-}
-
-function ensureUi(): RestUiState {
-  const appRoot = document.getElementById('app')
-  if (!appRoot) {
-    throw new Error('Missing #app root')
-  }
-
-  const existing = document.getElementById('restapi-controls') as HTMLDivElement | null
-  if (existing) {
-    return {
-      root: existing,
-      select: existing.querySelector('#restapi-url-select') as HTMLSelectElement,
-      response: existing.querySelector('#restapi-response') as HTMLPreElement,
-      addInput: existing.querySelector('#restapi-url-input') as HTMLInputElement,
-      addButton: existing.querySelector('#restapi-url-add') as HTMLButtonElement,
-      removeButton: existing.querySelector('#restapi-url-remove') as HTMLButtonElement,
-    }
-  }
-
-  const controls = document.createElement('div')
-  controls.id = 'restapi-controls'
-  controls.style.marginTop = '12px'
-
-  const row = document.createElement('div')
-  row.style.display = 'flex'
-  row.style.gap = '8px'
-  row.style.flexWrap = 'wrap'
-  row.style.alignItems = 'center'
-
-  const select = document.createElement('select')
-  select.id = 'restapi-url-select'
-  select.style.minWidth = '320px'
-
-  for (const url of DEFAULT_URLS) {
-    ensureOption(select, url)
-  }
-
-  const addInput = document.createElement('input')
-  addInput.id = 'restapi-url-input'
-  addInput.type = 'text'
-  addInput.placeholder = 'http://host/rest/path'
-  addInput.style.minWidth = '320px'
-
-  const addButton = document.createElement('button')
-  addButton.id = 'restapi-url-add'
-  addButton.type = 'button'
-  addButton.textContent = 'Add URL'
-
-  const removeButton = document.createElement('button')
-  removeButton.id = 'restapi-url-remove'
-  removeButton.type = 'button'
-  removeButton.textContent = 'Remove Selected'
-
-  const response = document.createElement('pre')
-  response.id = 'restapi-response'
-  response.style.marginTop = '10px'
-  response.style.whiteSpace = 'pre-wrap'
-  response.style.maxHeight = '320px'
-  response.style.overflow = 'auto'
-  response.style.border = '1px solid #aaa'
-  response.style.padding = '8px'
-  response.textContent = 'Response output will appear here.'
-
-  row.append(select, addInput, addButton, removeButton)
-  controls.append(row, response)
-  appRoot.append(controls)
-
-  return { root: controls, select, response, addInput, addButton, removeButton }
-}
-
-async function fetchAsText(url: string): Promise<{ statusLine: string; body: string }> {
-  const response = await fetch(`${PROXY_PATH}?url=${encodeURIComponent(url)}`, { method: 'GET' })
-  const contentType = response.headers.get('content-type') ?? ''
-  const text = await response.text()
-
-  let formatted = text
-  if (contentType.includes('application/json')) {
-    try {
-      formatted = JSON.stringify(JSON.parse(text), null, 2)
-    } catch {
-      formatted = text
-    }
-  }
-
-  return {
-    statusLine: `${response.status} ${response.statusText}`,
-    body: formatted,
-  }
-}
-
-let activeSelectEl: HTMLSelectElement | null = null
-
-function getActiveUrls(): string[] {
-  if (!activeSelectEl) {
-    return [...DEFAULT_URLS]
-  }
-  return getAllUrls(activeSelectEl)
-}
-
-function syncBrowserSelection(index: number): void {
-  if (!activeSelectEl) {
-    return
-  }
-
-  const urls = getAllUrls(activeSelectEl)
-  if (urls.length === 0) {
-    return
-  }
-
-  const clamped = clampIndex(index, urls.length)
-  activeSelectEl.selectedIndex = clamped
-  bridgeState.selectedIndex = clamped
-}
-
 export function createRestApiActions(setStatus: SetStatus): AppActions {
-  let ui: RestUiState | null = null
   let uiInitialized = false
   let isFetching = false
 
-  const runRequestByIndex = async (index: number): Promise<void> => {
-    if (!ui) {
+  const runRequestByCommand = async (command: RestCommand): Promise<void> => {
+    if (!activeUi) {
       return
     }
-
-    const urls = getAllUrls(ui.select)
-    if (urls.length === 0) {
-      setStatus('No URL selected')
-      appendEventLog('REST API: request blocked (no URL selected)')
-      return
-    }
-
-    const clamped = clampIndex(index, urls.length)
-    ui.select.selectedIndex = clamped
-    bridgeState.selectedIndex = clamped
 
     if (isFetching) {
       setStatus('Request already in progress')
@@ -489,32 +448,31 @@ export function createRestApiActions(setStatus: SetStatus): AppActions {
       return
     }
 
-    const url = urls[clamped]
-    setStatus(`Fetching ${url} ...`)
-    appendEventLog(`REST API: GET ${url}`)
+    setStatus(`Fetching ${command.url} ...`)
+    appendEventLog(`REST API: GET ${command.url} (${displayName(command)})`)
 
     if (bridgeDisplay) {
-      await bridgeDisplay.show('Loading...')
+      await bridgeDisplay.show(`Loading ${displayName(command)}...`)
     }
 
     isFetching = true
     try {
-      const { statusLine, body } = await fetchAsText(url)
+      const { statusLine, body } = await fetchAsText(PROXY_PATH, command.url)
       const preview = body.length > 200 ? `${body.slice(0, 200)}...` : body
 
-      ui.response.textContent = body
+      activeUi.response.textContent = body
       setStatus(`GET complete: ${statusLine}`)
       appendEventLog(`REST API: ${statusLine}`)
       appendEventLog(`REST API response preview: ${preview.replace(/\n/g, ' ')}`)
 
       if (bridgeDisplay) {
         const compactPreview = preview.replace(/\s+/g, ' ').slice(0, 96)
-        const bridgeMessage = `GET ${statusLine}\n${compactPreview}`
+        const bridgeMessage = `${displayName(command)} ${statusLine}\n${compactPreview}`
         await bridgeDisplay.show(bridgeMessage)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      ui.response.textContent = `Request failed:\n${message}`
+      activeUi.response.textContent = `Request failed:\n${message}`
       setStatus('GET failed')
       appendEventLog(`REST API: request failed (${message})`)
 
@@ -526,78 +484,110 @@ export function createRestApiActions(setStatus: SetStatus): AppActions {
     }
   }
 
-  function updateBridgeListFromBrowserSelect(target: RestUiState): void {
-    if (!bridgeDisplay || bridgeDisplay.mode !== 'bridge') {
+  const syncBridgeList = (): void => {
+    if (!activeUi || !bridgeDisplay || bridgeDisplay.mode !== 'bridge') {
       return
     }
 
-    const urls = getAllUrls(target.select)
-    const selectedIndex = clampIndex(target.select.selectedIndex, urls.length)
-    bridgeState.selectedIndex = selectedIndex
-    void bridgeDisplay.renderList(urls, selectedIndex)
+    const filtered = getFilteredCommands()
+    bridgeState.selectedIndex = clampIndex(bridgeState.selectedIndex, filtered.length)
+    bridgeState.statusMessage = buildFilterStatus()
+    void bridgeDisplay.renderList(filtered, bridgeState.selectedIndex, bridgeState.statusMessage)
   }
 
-  function bindUiEvents(target: RestUiState): void {
-    target.select.onchange = () => {
-      const urls = getAllUrls(target.select)
-      bridgeState.selectedIndex = clampIndex(target.select.selectedIndex, urls.length)
-      updateBridgeListFromBrowserSelect(target)
+  const bindUiEvents = (): void => {
+    if (!activeUi) {
+      return
     }
 
-    target.addButton.onclick = () => {
-      const inputUrl = target.addInput.value.trim()
-      if (!inputUrl) {
+    activeUi.select.onchange = () => {
+      const selected = selectedCommandFromUi()
+      if (!selected) {
+        bridgeState.selectedIndex = 0
+        syncBridgeList()
+        return
+      }
+
+      const filtered = getFilteredCommands()
+      const idx = filtered.findIndex((command) => command.id === selected.id)
+      bridgeState.selectedIndex = idx >= 0 ? idx : 0
+      syncBridgeList()
+    }
+
+    activeUi.tagFilterSelect.onchange = () => {
+      bridgeState.activeTagFilter = activeUi!.tagFilterSelect.value
+      bridgeState.selectedIndex = 0
+      appendEventLog(`REST API: tag filter set to ${getTagFilterLabel(bridgeState.activeTagFilter)}`)
+      syncBridgeList()
+    }
+
+    activeUi.addButton.onclick = () => {
+      const input = readCommandInput(activeUi!)
+      if (!input.url) {
         setStatus('Enter a URL before adding')
         return
       }
 
-      ensureOption(target.select, inputUrl)
-      target.select.value = inputUrl
-      target.addInput.value = ''
-      setStatus(`Added URL: ${inputUrl}`)
-      appendEventLog(`REST API: added URL ${inputUrl}`)
-      updateBridgeListFromBrowserSelect(target)
+      const parsedTags = parseTagsInput(input.tagsInput)
+      const { command, created } = store.upsert(input.url, input.name, parsedTags)
+      refreshUiData(command.id)
+      clearCommandInput(activeUi!)
+
+      if (created) {
+        setStatus(`Added command: ${displayName(command)}`)
+        appendEventLog(`REST API: added command ${command.url}`)
+      } else {
+        setStatus(`Updated command: ${displayName(command)}`)
+        appendEventLog(`REST API: updated command ${command.url}`)
+      }
+
+      syncBridgeList()
     }
 
-    target.removeButton.onclick = () => {
-      const current = selectedUrl(target.select)
-      if (!current) {
-        setStatus('No URL selected')
+    activeUi.removeButton.onclick = () => {
+      const selectedId = getSelectedCommandId(activeUi!.select)
+      if (!selectedId) {
+        setStatus('No command selected')
         return
       }
 
-      const selectedIndex = target.select.selectedIndex
-      target.select.remove(selectedIndex)
+      const removed = store.removeById(selectedId)
+      refreshUiData()
 
-      if (target.select.options.length > 0) {
-        target.select.selectedIndex = Math.max(0, selectedIndex - 1)
+      if (!removed) {
+        setStatus('No command selected')
+        return
       }
 
-      setStatus(`Removed URL: ${current}`)
-      appendEventLog(`REST API: removed URL ${current}`)
-      updateBridgeListFromBrowserSelect(target)
+      setStatus(`Removed command: ${displayName(removed)}`)
+      appendEventLog(`REST API: removed command ${removed.url}`)
+      syncBridgeList()
     }
   }
 
   return {
     async connect() {
-      ui = ensureUi()
-      activeSelectEl = ui.select
+      activeUi = ensureUi()
+      refreshUiData()
 
       if (!uiInitialized) {
-        bindUiEvents(ui)
+        bindUiEvents()
         uiInitialized = true
       }
 
       bridgeDisplay = await initBridgeDisplay()
-      bridgeDisplay.onSelectAndRun(runRequestByIndex)
+      bridgeDisplay.onSelectAndRun(runRequestByCommand)
 
-      const urls = getAllUrls(ui.select)
-      bridgeState.selectedIndex = clampIndex(ui.select.selectedIndex, urls.length)
+      const selected = selectedCommandFromUi()
+      if (selected) {
+        const filtered = getFilteredCommands()
+        const index = filtered.findIndex((command) => command.id === selected.id)
+        bridgeState.selectedIndex = index >= 0 ? index : 0
+      }
 
       if (bridgeDisplay.mode === 'bridge') {
-        await bridgeDisplay.renderList(urls, bridgeState.selectedIndex, 'Select URL and click')
-        setStatus('REST API ready. Use glasses Up/Down and Click to run URL.')
+        syncBridgeList()
+        setStatus('REST API ready. Up/Down select, Click run, Double-click switches tag filter.')
         appendEventLog('REST API: controls initialized (bridge mode)')
       } else {
         setStatus('REST API controls ready. Bridge not found, browser mode active.')
@@ -606,13 +596,20 @@ export function createRestApiActions(setStatus: SetStatus): AppActions {
     },
 
     async action() {
-      if (!ui) {
+      if (!activeUi) {
         setStatus('Run setup first')
         appendEventLog('REST API: request blocked (setup not run)')
         return
       }
 
-      await runRequestByIndex(ui.select.selectedIndex)
+      const selected = selectedCommandFromUi()
+      if (!selected) {
+        setStatus('No command selected')
+        appendEventLog('REST API: request blocked (no command selected)')
+        return
+      }
+
+      await runRequestByCommand(selected)
     },
   }
 }
