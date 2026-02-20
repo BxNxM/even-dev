@@ -52,6 +52,15 @@ if [ "${UPDATE_MODE}" -eq 1 ] && [ -n "${CLI_APP_NAME}" ] && [ -z "${UPDATE_TARG
 fi
 
 echo "Starting Even Hub development environment... ${URL}"
+echo "                                                         █████                     
+                                                        ░░███                      
+  ██████  █████ █████  ██████  ████████               ███████   ██████  █████ █████
+ ███░░███░░███ ░░███  ███░░███░░███░░███  ██████████ ███░░███  ███░░███░░███ ░░███ 
+░███████  ░███  ░███ ░███████  ░███ ░███ ░░░░░░░░░░ ░███ ░███ ░███████  ░███  ░███ 
+░███░░░   ░░███ ███  ░███░░░   ░███ ░███            ░███ ░███ ░███░░░   ░░███ ███  
+░░██████   ░░█████   ░░██████  ████ █████           ░░████████░░██████   ░░█████   
+ ░░░░░░     ░░░░░     ░░░░░░  ░░░░ ░░░░░             ░░░░░░░░  ░░░░░░     ░░░░░    
+                                                                                   "
 
 # --------------------------------------------------
 # Helpers
@@ -214,7 +223,9 @@ discover_apps () {
     apps+=("${APP_NAME}")
   fi
 
-  printf '%s\n' "${apps[@]}" | sort -u
+  # Keep discovery order: built-in apps first, then apps.json entries.
+  # Deduplicate while preserving first occurrence.
+  printf '%s\n' "${apps[@]}" | awk '!seen[$0]++'
 }
 
 resolve_app_selection () {
