@@ -31,13 +31,14 @@ Available apps:
   6    chess                .apps-cache: github.com/dmyster145/EvenChess
   7    epub                 .apps-cache: github.com/chortya/epub-reader-g2
   8    reddit               .apps-cache: github.com/fuutott/rdt-even-g2-rddit-client
-  9    stars                .apps-cache: github.com/thibautrey/even-stars
-  10   transit              .apps-cache: github.com/langerhans/even-transit
-  11   weather              .apps-cache: github.com/nickustinov/weather-even-g2.git
-  12   snake                .apps-cache: github.com/nickustinov/snake-even-g2
-  13   pong                 .apps-cache: github.com/nickustinov/pong-even-g2
-  14   stt                  .apps-cache: github.com/nickustinov/stt-even-g2
-  15   tetris               .apps-cache: github.com/nickustinov/tetris-even-g2
+  9    smart-cart           .apps-cache: github.com/bryan-datastorm/smart-cart-even-g2
+  10   stars                .apps-cache: github.com/thibautrey/even-stars
+  11   transit              .apps-cache: github.com/langerhans/even-transit
+  12   weather              .apps-cache: github.com/nickustinov/weather-even-g2.git
+  13   snake                .apps-cache: github.com/nickustinov/snake-even-g2
+  14   pong                 .apps-cache: github.com/nickustinov/pong-even-g2
+  15   stt                  .apps-cache: github.com/nickustinov/stt-even-g2
+  16   tetris               .apps-cache: github.com/nickustinov/tetris-even-g2
 Select app [1-15] (default 1): 1
 ```
 
