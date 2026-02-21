@@ -413,15 +413,11 @@ echo "Vite is ready."
 
 echo "Launching Even Hub Simulator..."
 
-SIM_ARGS=("${URL}")
+SIM_ARGS=()
 if [ -n "${AUDIO_DEVICE}" ]; then
   SIM_ARGS+=("--aid" "${AUDIO_DEVICE}")
 fi
 # shellcheck disable=SC2206
 SIM_ARGS+=(${SIM_OPTS})
-
-if command_exists evenhub-simulator; then
-  evenhub-simulator "${SIM_ARGS[@]}"
-else
-  npx @evenrealities/evenhub-simulator "${SIM_ARGS[@]}"
-fi
+SIM_ARGS+=("${URL}")
+npx --yes @evenrealities/evenhub-simulator@latest "${SIM_ARGS[@]}"

@@ -128,12 +128,16 @@ Some apps (like [stt](https://github.com/nickustinov/stt-even-g2)) need micropho
 
 ```bash
 AUDIO_DEVICE="coreaudio:AppleUSBAudioEngine:Apple Inc.:Studio Display:00008030-00065D000C10802E:6,7" ./start-even.sh stt
+
+OR
+
+AUDIO_DEVICE="coreaudio:BuiltInMicrophoneDevice" ./start-even.sh stt
 ```
 
 To find available device IDs, run:
 
 ```bash
-npx @evenrealities/evenhub-simulator --list-audio-input-devices
+npx @evenrealities/evenhub-simulator@latest -b default --list-audio-input-devices
 ```
 
 This prints a table of IDs and names. Copy the full ID string from the left column. Note that `default` is not a valid device ID – you must use the exact ID.
