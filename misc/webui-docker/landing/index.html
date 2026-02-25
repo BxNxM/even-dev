@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>even-dev Docker Launcher</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #171d24;
+      --panel-2: #1d2530;
+      --border: #2d3846;
+      --text: #e7edf5;
+      --muted: #9fb0c3;
+      --accent: #49a6ff;
+      --danger: #ff7b72;
+      --code-bg: #0c1015;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 10% 10%, #1b2735 0%, var(--bg) 45%);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .app {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(13, 18, 23, 0.95);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { font-weight: 700; }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(360px, 1fr) minmax(380px, 42vw);
+      min-height: 0;
+      height: 100%;
+    }
+    .pane {
+      min-height: 0;
+      border-right: 1px solid var(--border);
+      background: rgba(23, 29, 36, 0.92);
+      display: flex;
+      flex-direction: column;
+    }
+    .pane:last-child { border-right: 0; }
+    .pane-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-2);
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .pane-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px;
+    }
+    .section-title {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .apps-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .item {
+      width: 100%;
+      text-align: left;
+      border: 1px solid var(--border);
+      background: #121821;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .item:hover { border-color: #44607f; }
+    .item.active {
+      border-color: var(--accent);
+      background: #112338;
+    }
+    .item .sub {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .files {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .file-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-btn:hover { background: #101721; border-color: var(--border); }
+    .file-btn.active { background: #112338; border-color: var(--accent); }
+    .meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .badge {
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 2px 8px;
+      background: #10161d;
+    }
+    pre.code {
+      margin: 0;
+      background: var(--code-bg);
+      color: #d7e2ee;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow: auto;
+      min-height: 300px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .split {
+      display: grid;
+      grid-template-rows: 220px 1fr;
+      gap: 10px;
+      min-height: 0;
+      height: 100%;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #111821;
+      overflow: hidden;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-header {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .sim {
+      padding: 12px;
+      display: grid;
+      place-items: center;
+      flex: 1;
+      background:
+        radial-gradient(circle at 50% 30%, rgba(73,166,255,0.12), transparent 55%),
+        #0b1016;
+    }
+    .glasses {
+      width: 100%;
+      max-width: 320px;
+      aspect-ratio: 16 / 8;
+      border: 1px solid #405268;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #0f1720, #0a1016);
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    }
+    .hud-line {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      height: 1px;
+      background: rgba(73,166,255,0.25);
+    }
+    .hud-line.l1 { top: 30%; }
+    .hud-line.l2 { top: 50%; }
+    .hud-line.l3 { top: 70%; }
+    .hud-label {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      color: #9dd2ff;
+      font-size: 11px;
+      text-shadow: 0 0 8px rgba(73,166,255,0.35);
+    }
+    .hud-box {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      border: 1px solid rgba(73,166,255,0.35);
+      padding: 6px 8px;
+      color: #bde1ff;
+      font-size: 11px;
+      background: rgba(73,166,255,0.06);
+    }
+    .hud-hint {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 46px;
+      border: 1px dashed rgba(157, 210, 255, 0.25);
+      border-radius: 8px;
+      padding: 7px 8px;
+      color: #cfe8ff;
+      background: rgba(8, 15, 22, 0.78);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+    .hud-hint code {
+      color: #9dd2ff;
+      background: rgba(73,166,255,0.08);
+      border: 1px solid rgba(73,166,255,0.15);
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    iframe.preview {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: white;
+    }
+    .preview-fallback {
+      padding: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .logs {
+      margin: 0;
+      border-top: 1px solid var(--border);
+      background: #0a0f14;
+      color: #cfe2f5;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.35;
+      max-height: 140px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input.app-input {
+      border: 1px solid var(--border);
+      background: #0f141b;
+      color: var(--text);
+      border-radius: 7px;
+      padding: 4px 8px;
+      font: inherit;
+      font-size: 12px;
+      width: 120px;
+    }
+    button, a.btn {
+      border: 1px solid var(--border);
+      background: #121a23;
+      color: var(--text);
+      border-radius: 7px;
+      padding: 5px 8px;
+      cursor: pointer;
+      text-decoration: none;
+      font: inherit;
+      font-size: 12px;
+    }
+    button.primary, a.btn.primary {
+      border-color: #2f6aa6;
+      background: #143356;
+    }
+    .error {
+      color: var(--danger);
+      white-space: pre-wrap;
+      font-size: 12px;
+    }
+    @media (max-width: 1200px) {
+      .layout { grid-template-columns: 240px 1fr; }
+      .pane.preview-pane { grid-column: 1 / -1; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">even-dev Docker Launcher</div>
+      <div class="top-actions">
+        <span id="healthStatus">checking /health...</span>
+        <a class="btn" href="/health" target="_blank" rel="noreferrer">health</a>
+        <a class="btn" href="http://localhost:5173" target="_blank" rel="noreferrer">main UI</a>
+        <a class="btn" href="http://localhost:5174" target="_blank" rel="noreferrer">editor</a>
+      </div>
+    </div>
+
+    <div class="layout">
+      <aside class="pane">
+        <div class="pane-header">Apps</div>
+        <div class="pane-body">
+          <div class="apps-toolbar">
+            <button id="newAppBtn" class="primary" type="button">New App</button>
+          </div>
+          <h3 class="section-title">Built-in</h3>
+          <div id="builtinApps" class="list"></div>
+          <h3 class="section-title">External (apps.json)</h3>
+          <div id="externalApps" class="list"></div>
+          <div id="appsError" class="error"></div>
+        </div>
+      </aside>
+
+      <section class="pane">
+        <div class="pane-header">Code</div>
+        <div class="pane-body">
+          <div class="meta">
+            <span class="badge" id="selectedAppBadge">no app selected</span>
+            <span class="badge" id="selectedFileBadge">no file selected</span>
+          </div>
+          <div class="files" id="filesList"></div>
+          <div style="height:10px"></div>
+          <pre class="code" id="codeView">Select an app from the left panel.</pre>
+          <div id="codeError" class="error"></div>
+        </div>
+      </section>
+
+      <section class="pane preview-pane">
+        <div class="pane-header">Preview</div>
+        <div class="pane-body">
+          <div class="split">
+            <div class="card">
+              <div class="card-header">
+                <span>Glasses Simulator (dummy)</span>
+                <span id="simAppLabel">App: -</span>
+              </div>
+              <div class="sim">
+                <div class="glasses">
+                  <div class="hud-label">EVEN G2 SIM (DUMMY)</div>
+                  <div class="hud-line l1"></div>
+                  <div class="hud-line l2"></div>
+                  <div class="hud-line l3"></div>
+                  <div class="hud-hint">
+                    <code>URL=http://localhost:5173 ./start-even.sh --sim-only</code>
+                  </div>
+                  <div class="hud-box" id="hudFileLabel">FILE: -</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="toolbar">
+                  <span>Selected Web App Page</span>
+                  <input id="previewAppInput" class="app-input" value="base_app" />
+                  <button id="startAppBtn" class="primary" type="button">Start App</button>
+                  <button id="stopAppBtn" type="button">Stop</button>
+                  <button id="reloadPreviewBtn" type="button">Reload Preview</button>
+                  <button id="buildBtn" type="button">Build</button>
+                  <button id="genQrBtn" type="button">Generate QR</button>
+                  <button id="publishBtn" type="button">Publish</button>
+                </div>
+                <a class="btn primary" href="http://localhost:5173" target="_blank" rel="noreferrer">Open 5173</a>
+              </div>
+              <iframe id="previewFrame" class="preview" src="about:blank" title="Selected app preview"></iframe>
+              <div class="preview-fallback" id="previewHint">
+                Start the main UI container on port <code>5173</code> with the selected app:
+                <br />
+                <code id="startCmd">APP_NAME=base_app docker compose up -d even-webui</code>
+              </div>
+              <pre id="runnerLogs" class="logs">Runner idle. Click "Start App" to run start-even.sh --web-only in the background.</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      apps: [],
+      selectedApp: null,
+      selectedFile: null,
+      fileCache: new Map(),
+    };
+
+    const els = {
+      builtinApps: document.getElementById('builtinApps'),
+      externalApps: document.getElementById('externalApps'),
+      newAppBtn: document.getElementById('newAppBtn'),
+      appsError: document.getElementById('appsError'),
+      filesList: document.getElementById('filesList'),
+      codeView: document.getElementById('codeView'),
+      codeError: document.getElementById('codeError'),
+      selectedAppBadge: document.getElementById('selectedAppBadge'),
+      selectedFileBadge: document.getElementById('selectedFileBadge'),
+      simAppLabel: document.getElementById('simAppLabel'),
+      hudFileLabel: document.getElementById('hudFileLabel'),
+      previewAppInput: document.getElementById('previewAppInput'),
+      startCmd: document.getElementById('startCmd'),
+      startAppBtn: document.getElementById('startAppBtn'),
+      stopAppBtn: document.getElementById('stopAppBtn'),
+      reloadPreviewBtn: document.getElementById('reloadPreviewBtn'),
+      buildBtn: document.getElementById('buildBtn'),
+      genQrBtn: document.getElementById('genQrBtn'),
+      publishBtn: document.getElementById('publishBtn'),
+      previewFrame: document.getElementById('previewFrame'),
+      healthStatus: document.getElementById('healthStatus'),
+      runnerLogs: document.getElementById('runnerLogs'),
+    };
+
+    async function getJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json();
+    }
+
+    async function postJson(url, payload) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+      return data;
+    }
+
+    function buildSrcDocFromHtml(html) {
+      const origin = 'http://localhost:5173';
+      let out = String(html || '');
+      out = out.replace(/<head([^>]*)>/i, `<head$1><base href="${origin}/">`);
+      out = out.replace(/(src|href)=["']\/(?!\/)/g, `$1="${origin}/`);
+      return out;
+    }
+
+    async function loadPreviewIntoIframe() {
+      const hint = document.getElementById('previewHint');
+      hint.style.display = 'block';
+      try {
+        const data = await getJson('/api/preview-html');
+        if (!data || !data.html) throw new Error('No preview HTML returned');
+        els.previewFrame.srcdoc = buildSrcDocFromHtml(data.html);
+        hint.style.display = 'none';
+      } catch (err) {
+        hint.style.display = 'block';
+        hint.innerHTML = `Preview not available yet.<br><code>${escapeHtml(err.message)}</code><br><br>Make sure the app is running on <code>http://localhost:5173</code>.`;
+      }
+    }
+
+    function renderApps() {
+      els.builtinApps.innerHTML = '';
+      els.externalApps.innerHTML = '';
+      const builtins = state.apps.filter(a => a.kind === 'builtin');
+      const externals = state.apps.filter(a => a.kind === 'external');
+
+      for (const app of builtins) {
+        els.builtinApps.appendChild(appButton(app));
+      }
+      for (const app of externals) {
+        els.externalApps.appendChild(appButton(app));
+      }
+    }
+
+    function appButton(app) {
+      const btn = document.createElement('button');
+      btn.className = 'item' + (state.selectedApp && state.selectedApp.key === app.key ? ' active' : '');
+      btn.type = 'button';
+      btn.innerHTML = `${escapeHtml(app.name)}<span class="sub">${escapeHtml(app.sourceLabel || '')}</span>`;
+      btn.addEventListener('click', () => selectApp(app));
+      return btn;
+    }
+
+    async function selectApp(app) {
+      state.selectedApp = app;
+      state.selectedFile = null;
+      renderApps();
+      updateSelectionMeta();
+      els.codeError.textContent = '';
+      els.codeView.textContent = 'Loading files...';
+      els.filesList.innerHTML = '';
+      els.previewAppInput.value = app.name;
+      updatePreviewCommand(app.name);
+
+      try {
+        const data = await getJson(`/api/files?kind=${encodeURIComponent(app.kind)}&name=${encodeURIComponent(app.name)}`);
+        const files = data.files || [];
+        renderFiles(files);
+        const preferred = files.find(f => /(^|\/)src\/main\.(ts|tsx|js|jsx)$/.test(f))
+          || files.find(f => /(^|\/)index\.html$/.test(f))
+          || files[0];
+        if (preferred) {
+          await selectFile(preferred);
+        } else {
+          els.codeView.textContent = 'No files found for this app.';
+        }
+      } catch (err) {
+        els.codeError.textContent = `Failed to load files: ${err.message}`;
+        els.codeView.textContent = 'Could not load file list.';
+      }
+    }
+
+    function renderFiles(files) {
+      els.filesList.innerHTML = '';
+      if (!files.length) {
+        const div = document.createElement('div');
+        div.className = 'meta';
+        div.textContent = 'No source files found.';
+        els.filesList.appendChild(div);
+        return;
+      }
+      for (const file of files) {
+        const b = document.createElement('button');
+        b.className = 'file-btn' + (state.selectedFile === file ? ' active' : '');
+        b.type = 'button';
+        b.textContent = file;
+        b.title = file;
+        b.addEventListener('click', () => selectFile(file));
+        els.filesList.appendChild(b);
+      }
+    }
+
+    async function selectFile(file) {
+      if (!state.selectedApp) return;
+      state.selectedFile = file;
+      renderFiles(Array.from(els.filesList.querySelectorAll('.file-btn')).map(el => el.textContent));
+      updateSelectionMeta();
+      els.codeError.textContent = '';
+      els.codeView.textContent = 'Loading file...';
+      els.hudFileLabel.textContent = `FILE: ${shorten(file, 26)}`;
+
+      const cacheKey = `${state.selectedApp.kind}:${state.selectedApp.name}:${file}`;
+      try {
+        let content = state.fileCache.get(cacheKey);
+        if (!content) {
+          const data = await getJson(`/api/file?kind=${encodeURIComponent(state.selectedApp.kind)}&name=${encodeURIComponent(state.selectedApp.name)}&path=${encodeURIComponent(file)}`);
+          content = data.content || '';
+          state.fileCache.set(cacheKey, content);
+        }
+        els.codeView.textContent = content;
+      } catch (err) {
+        els.codeError.textContent = `Failed to load file: ${err.message}`;
+        els.codeView.textContent = 'Could not load file content.';
+      }
+    }
+
+    function updateSelectionMeta() {
+      const appName = state.selectedApp ? `${state.selectedApp.kind}:${state.selectedApp.name}` : 'no app selected';
+      const fileName = state.selectedFile || 'no file selected';
+      els.selectedAppBadge.textContent = appName;
+      els.selectedFileBadge.textContent = fileName;
+      els.simAppLabel.textContent = `App: ${state.selectedApp ? state.selectedApp.name : '-'}`;
+    }
+
+    function updatePreviewCommand(appName) {
+      els.startCmd.textContent = `APP_NAME=${appName || 'base_app'} docker compose up -d even-webui`;
+    }
+
+    function renderRunnerStatus(status) {
+      if (!status) return;
+      const summary = status.running
+        ? `RUNNING app=${status.appName || '-'} port=${status.webPort}`
+        : `STOPPED last=${status.appName || '-'} exit=${status.exitCode ?? 'n/a'}`;
+      const lines = [summary, ...(status.logs || [])];
+      els.runnerLogs.textContent = lines.join('\n');
+      if (status.running) {
+        document.getElementById('previewHint').style.display = 'none';
+      }
+    }
+
+    async function refreshRunnerStatus() {
+      try {
+        const status = await getJson('/api/run/status');
+        renderRunnerStatus(status);
+      } catch (err) {
+        els.runnerLogs.textContent = `Failed to load runner status: ${err.message}`;
+      }
+    }
+
+    function shorten(s, n) {
+      if (!s) return '';
+      return s.length > n ? '...' + s.slice(-(n - 3)) : s;
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    async function loadApps() {
+      els.appsError.textContent = '';
+      try {
+        const data = await getJson('/api/apps');
+        state.apps = data.apps || [];
+        renderApps();
+        if (state.apps.length) {
+          const first = state.apps.find(a => a.kind === 'builtin') || state.apps[0];
+          await selectApp(first);
+        } else {
+          els.appsError.textContent = 'No apps found.';
+        }
+      } catch (err) {
+        els.appsError.textContent = `Failed to load apps: ${err.message}`;
+      }
+    }
+
+    async function checkHealth() {
+      try {
+        const res = await fetch('/health');
+        const text = await res.text();
+        els.healthStatus.textContent = `/health: ${text.trim()}`;
+      } catch (err) {
+        els.healthStatus.textContent = `/health failed`;
+      }
+    }
+
+    els.startAppBtn.addEventListener('click', async () => {
+      const app = (els.previewAppInput.value || '').trim() || 'base_app';
+      updatePreviewCommand(app);
+      els.runnerLogs.textContent = `Starting ${app} via start-even.sh --web-only...`;
+      try {
+        const res = await postJson('/api/run/start', { appName: app });
+        renderRunnerStatus(res.status);
+        setTimeout(() => {
+          loadPreviewIntoIframe();
+        }, 1200);
+      } catch (err) {
+        els.runnerLogs.textContent = `Start failed: ${err.message}`;
+        document.getElementById('previewHint').style.display = 'block';
+      }
+    });
+
+    els.stopAppBtn.addEventListener('click', async () => {
+      try {
+        const res = await postJson('/api/run/stop', {});
+        renderRunnerStatus(res.status);
+        document.getElementById('previewHint').style.display = 'block';
+      } catch (err) {
+        els.runnerLogs.textContent = `Stop failed: ${err.message}`;
+      }
+    });
+
+    els.reloadPreviewBtn.addEventListener('click', () => {
+      loadPreviewIntoIframe();
+    });
+
+    els.genQrBtn.addEventListener('click', () => {
+      alert('Dummy action: QR code generation is not implemented yet.');
+    });
+
+    els.buildBtn.addEventListener('click', () => {
+      alert('Dummy action: Build flow is not implemented yet.');
+    });
+
+    els.publishBtn.addEventListener('click', () => {
+      alert('Dummy action: Publish flow is not implemented yet.');
+    });
+
+    els.newAppBtn.addEventListener('click', () => {
+      alert('Dummy action: New App wizard is not implemented yet.');
+    });
+
+    els.previewFrame.addEventListener('load', () => {
+      document.getElementById('previewHint').style.display = 'none';
+    });
+    els.previewFrame.addEventListener('error', () => {
+      document.getElementById('previewHint').style.display = 'block';
+    });
+
+    checkHealth();
+    loadApps();
+    refreshRunnerStatus();
+    setTimeout(loadPreviewIntoIframe, 800);
+    setInterval(refreshRunnerStatus, 2000);
+  </script>
+</body>
+</html>

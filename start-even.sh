@@ -14,6 +14,8 @@ APP_NAME="${APP_NAME:-}"
 APP_PATH="${APP_PATH:-}"
 AUDIO_DEVICE="${AUDIO_DEVICE:-}"
 SIM_OPTS="${SIM_OPTS:-}"
+WEB_ONLY_MODE=0
+SIM_ONLY_MODE=0
 CLI_APP_NAME=""
 UPDATE_MODE=0
 UPDATE_TARGET=""
@@ -36,9 +38,15 @@ while [ "$#" -gt 0 ]; do
         npm install
         exit $?
       ;;
+    --web-only)
+      WEB_ONLY_MODE=1
+      ;;
+    --sim-only)
+      SIM_ONLY_MODE=1
+      ;;
     --*)
       echo "Unknown option: $1" >&2
-      echo "Usage: ./start-even.sh [app-name] [--update [app-name]]" >&2
+      echo "Usage: ./start-even.sh [app-name] [--update [app-name]] [--web-only] [--sim-only]" >&2
       exit 1
       ;;
     *)
@@ -46,7 +54,7 @@ while [ "$#" -gt 0 ]; do
         CLI_APP_NAME="$1"
       else
         echo "Unexpected extra argument: $1" >&2
-        echo "Usage: ./start-even.sh [app-name] [--update [app-name]]" >&2
+        echo "Usage: ./start-even.sh [app-name] [--update [app-name]] [--web-only] [--sim-only]" >&2
         exit 1
       fi
       ;;
@@ -86,6 +94,10 @@ Command hints:
   ./start-even.sh --update         # refresh all git apps from apps.json
   ./start-even.sh --update <name>  # refresh one git app from apps.json
   ./start-even.sh --devenv-update  # update even-dev npn dependencies from package.json
+
+  Docker experiment:
+    APP_NAME=base_app ./start-even.sh --web-only         # run web app only (no simulator)
+    URL=http://localhost:5173 ./start-even.sh --sim-only # run simulator only (no web server)
 EOF
 }
 
@@ -418,6 +430,26 @@ if [ "${ORIGINAL_ARGC}" -eq 0 ] && [ -z "${APP_NAME}" ] && [ -z "${APP_PATH}" ];
   print_cli_hints
 fi
 
+if [ "${WEB_ONLY_MODE}" -eq 1 ] && [ "${SIM_ONLY_MODE}" -eq 1 ]; then
+  echo "Use either --web-only or --sim-only (not both)." >&2
+  exit 1
+fi
+
+if [ "${SIM_ONLY_MODE}" -eq 1 ]; then
+  echo "SIM_ONLY mode enabled: launching simulator only (expects app already running at ${URL})"
+  echo "Launching Even Hub Simulator..."
+
+  SIM_ARGS=()
+  if [ -n "${AUDIO_DEVICE}" ]; then
+    SIM_ARGS+=("--aid" "${AUDIO_DEVICE}")
+  fi
+  # shellcheck disable=SC2206
+  SIM_ARGS+=(${SIM_OPTS})
+  SIM_ARGS+=("${URL}")
+  npx --yes @evenrealities/evenhub-simulator@latest "${SIM_ARGS[@]}"
+  exit $?
+fi
+
 # --------------------------------------------------
 # Ensure local dependencies installed
 # --------------------------------------------------
@@ -490,6 +522,12 @@ echo "Vite is ready."
 # --------------------------------------------------
 # Launch simulator
 # --------------------------------------------------
+
+if [ "${WEB_ONLY_MODE}" -eq 1 ]; then
+  echo "WEB_ONLY mode enabled: simulator launch skipped. Vite server is running at ${URL}"
+  wait "${VITE_PID}"
+  exit $?
+fi
 
 echo "Launching Even Hub Simulator..."
 
