@@ -371,12 +371,12 @@ vite.config.ts      -> Root Vite config (serves the selected standalone app HTML
 ```mermaid
 flowchart TD
   A["start-even.sh"] --> S["Sync plugin symlinks"]
-  S --> L1["apps/<name>/vite-plugin.ts -> vite-plugins/<name>-plugin.ts"]
-  S --> L2[".apps-cache/<name>/vite-plugin.ts -> vite-plugins/<name>-plugin.ts"]
+  S --> L1["apps/{app-name}/vite-plugin.ts -> vite-plugins/{app-name}-plugin.ts"]
+  S --> L2[".apps-cache/{app-name}/vite-plugin.ts -> vite-plugins/{app-name}-plugin.ts"]
   A --> B["Vite dev server (APP_NAME + APP_PATH)"]
   B --> P0["Default plugins: app-server + browser-launcher"]
-  B --> P1["Selected plugin: vite-plugins/<selected-app>-plugin.ts"]
-  B --> P2["Selected app plugin: <selected-app-dir>/vite-plugin.ts"]
+  B --> P1["Selected plugin: vite-plugins/{selected-app}-plugin.ts"]
+  B --> P2["Selected app plugin: {selected-app-dir}/vite-plugin.ts"]
   B --> C["Selected app's own index.html"]
   C --> D["Selected app's src/main.ts"]
   D --> E["Even Hub SDK / bridge"]
