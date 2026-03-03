@@ -69,6 +69,7 @@ For general G2 development documentation, see the [G2 development notes](https:/
 |    [stars](https://github.com/thibautrey/even-stars) | Real-time sky chart by @thibautrey | ![stars](./media/stars.png) |
 |    [transit](https://github.com/langerhans/even-transit) | Public transport planner by @langerhans | ![stars](./media/transport.png) |
 |    [weather](https://github.com/nickustinov/weather-even-g2) | Weather forecast by @nickustinov | ![weather](./media/weather.png) |
+|    [worldclock](https://github.com/KamalQ/EvenWorldClock) | World clock app by @KamalQ | ![worldclock](./media/woldclock.png) |
 |    [stt](https://github.com/nickustinov/stt-even-g2) | Real-time speech-to-text via [Soniox](https://soniox.com) by @nickustinov | |
 
 ---
