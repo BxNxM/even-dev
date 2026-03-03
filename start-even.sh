@@ -20,6 +20,7 @@ CLI_APP_NAME=""
 UPDATE_MODE=0
 UPDATE_TARGET=""
 RESET_MODE=0
+DEVENV_UPDATE_MODE=0
 EVENHUB_MODE=0
 EVENHUB_ARGS=()
 ORIGINAL_ARGC="$#"
@@ -34,12 +35,7 @@ while [ "$#" -gt 0 ]; do
       fi
       ;;
     --devenv-update)
-        echo "EVEN-DEV DEPENDENCY UPDATE"
-        echo "|- Clean node_modules and package-lock.json"
-        rm -rf node_modules package-lock.json
-        echo "|- Installing project dependencies..."
-        npm install
-        exit $?
+      DEVENV_UPDATE_MODE=1
       ;;
     --reset)
       RESET_MODE=1
@@ -91,6 +87,11 @@ if [ "${EVENHUB_MODE}" -eq 1 ] && [ "${RESET_MODE}" -eq 1 ]; then
   exit 1
 fi
 
+if [ "${DEVENV_UPDATE_MODE}" -eq 1 ] && { [ -n "${CLI_APP_NAME}" ] || [ "${UPDATE_MODE}" -eq 1 ] || [ "${WEB_ONLY_MODE}" -eq 1 ] || [ "${SIM_ONLY_MODE}" -eq 1 ] || [ "${RESET_MODE}" -eq 1 ] || [ "${EVENHUB_MODE}" -eq 1 ]; }; then
+  echo "--devenv-update cannot be combined with other launcher modes." >&2
+  exit 1
+fi
+
 if [ "${RESET_MODE}" -eq 1 ] && [ -n "${CLI_APP_NAME}" ]; then
   echo "Do not pass an app name with --reset." >&2
   exit 1
@@ -128,7 +129,7 @@ Command hints:
   ./start-even.sh <app-name>             # run one app directly
   ./start-even.sh --update               # refresh all git apps from apps.json
   ./start-even.sh --update <name>        # refresh one git app from apps.json
-  ./start-even.sh --devenv-update        # update even-dev npm dependencies from package.json
+  ./start-even.sh --devenv-update        # refresh root and apps/* npm dependencies
   ./start-even.sh --reset                # remove generated caches/build outputs
   ./start-even.sh --evenhub-cli --help   # evenhub-cli launcher
 
@@ -193,6 +194,26 @@ reset_generated_files () {
   fi
 
   echo "Reset complete."
+}
+
+refresh_devenv_dependencies () {
+  local app_dir
+
+  echo "EVEN-DEV DEPENDENCY UPDATE"
+  echo "|- Root: clean node_modules and package-lock.json"
+  rm -rf node_modules package-lock.json
+  echo "|- Root: install dependencies from package.json"
+  npm install
+
+  [ -d "apps" ] || return 0
+
+  while IFS= read -r app_dir; do
+    [ -f "${app_dir}/package.json" ] || continue
+    echo "|- ${app_dir}: clean node_modules and package-lock.json"
+    rm -rf "${app_dir}/node_modules" "${app_dir}/package-lock.json"
+    echo "|- ${app_dir}: install dependencies from package.json"
+    npm --prefix "${app_dir}" install
+  done < <(find "apps" -mindepth 1 -maxdepth 1 -type d ! -name '_*' ! -name '.*' | sort)
 }
 
 get_registry_entry () {
@@ -564,6 +585,11 @@ fi
 if ! command_exists npm; then
   echo "npm is not installed."
   exit 1
+fi
+
+if [ "${DEVENV_UPDATE_MODE}" -eq 1 ]; then
+  refresh_devenv_dependencies
+  exit $?
 fi
 
 if [ "${ORIGINAL_ARGC}" -eq 0 ] && [ -z "${APP_NAME}" ] && [ -z "${APP_PATH}" ]; then

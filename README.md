@@ -19,7 +19,7 @@ Command hints:
   ./start-even.sh <app-name>             # run one app directly
   ./start-even.sh --update               # refresh all git apps from apps.json
   ./start-even.sh --update <name>        # refresh one git app from apps.json
-  ./start-even.sh --devenv-update        # update even-dev npm dependencies from package.json
+  ./start-even.sh --devenv-update        # refresh root and apps/* npm dependencies
   ./start-even.sh --reset                # remove generated caches/build outputs
   ./start-even.sh --evenhub-cli --help   # evenhub-cli launcher
 
@@ -111,13 +111,17 @@ If a cached app has local changes (for example `package-lock.json` edits), the u
 
 ### Update even-dev launcher dependencies
 
-Refresh the root launcher environment (`start-even.sh`, root Vite, `vite-plugins/*`):
+Refresh npm dependencies for:
+- root launcher environment (`start-even.sh`, root Vite, `vite-plugins/*`)
+- built-in apps under `apps/*`
 
 ```bash
 ./start-even.sh --devenv-update
 ```
 
-Standalone apps under `apps/*` keep their own dependencies in `apps/<app>/package.json`.
+This command removes and reinstalls:
+- root `node_modules` + `package-lock.json`
+- each built-in app's `node_modules` + `package-lock.json`
 
 ### Select an app directly
 
