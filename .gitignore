@@ -8,4 +8,6 @@ dist/
 # Plugin symlinks
 vite-plugins/restapi-plugin.ts
 vite-plugins/weather-plugin.ts
+vite-plugins/browser-plugin.ts
+vite-plugins/kitchen-plugin.ts
 
